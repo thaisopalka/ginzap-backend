@@ -4,16 +4,11 @@ const cors = require('cors');
 const { Server } = require('socket.io');
 
 const app = express();
-// Permite que a sua tela na Vercel consiga conversar com este motor
-app.use(cors({
-    origin: "*", 
-    methods: ["GET", "POST"]
-}));
+app.use(cors());
 app.use(express.json());
 
 const server = http.createServer(app);
 
-// Configuração do "rádio" (WebSockets) para mensagens em tempo real
 const io = new Server(server, {
   cors: {
     origin: "*",
@@ -21,23 +16,21 @@ const io = new Server(server, {
   }
 });
 
-// Rota de teste para sabermos se o motor ligou
+// Agora o motor vai responder tanto no link puro quanto no /api
+app.get('/', (req, res) => {
+  res.send("🚀 Motor GinZap ligado e pronto!");
+});
+
 app.get('/api', (req, res) => {
-  res.json({ message: "Motor do GinZap operando 100%!" });
+  res.json({ status: "ok", message: "API operando!" });
 });
 
-// Quando alguém entra no aplicativo...
 io.on('connection', (socket) => {
-  console.log('🟢 Um usuário conectou:', socket.id);
-
-  // Quando alguém sai do aplicativo...
-  socket.on('disconnect', () => {
-    console.log('🔴 Usuário desconectou:', socket.id);
-  });
+  console.log('🟢 Alguém conectou:', socket.id);
+  socket.emit('status', 'conectado ao motor');
 });
 
-// Liga o motor na porta correta
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 10000; // Render prefere a porta 10000
 server.listen(PORT, () => {
-  console.log(`🚀 Servidor rodando a todo vapor na porta ${PORT}`);
+  console.log(`Motor rodando na porta ${PORT}`);
 });
