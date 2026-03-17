@@ -5,9 +5,9 @@ const { Server } = require('socket.io');
 
 const app = express();
 
-// 1. SEGURANÇA (CORS)
+// 1. SEGURANÇA (CORS) LIBERADA PARA O VERCEL
 app.use(cors({
-  origin: 'https://ginzap-app.vercel.app', // O link do seu app
+  origin: 'https://ginzap-app.vercel.app',
   credentials: true
 }));
 app.use(express.json());
@@ -23,75 +23,80 @@ const io = new Server(server, {
 });
 
 // ==========================================
-// 🧠 "BANCO DE DADOS" TEMPORÁRIO (Memória)
+// 🧠 GAVETAS DE MEMÓRIA (O "Banco de Dados")
 // ==========================================
-// Aqui o servidor vai guardar as informações enquanto estiver ligado
 let tasks = [];
 let messages = [];
+let users = [];
+let members = [];
 
 // ==========================================
-// 🚪 PORTAS DE ENTRADA (Rotas da API)
+// 🚪 PORTAS DE ENTRADA (O que o seu app procura)
 // ==========================================
 
-// Rota para CRIAR uma tarefa (O botão que deu erro vermelho)
+// Rota para o seu login não dar erro 404
+app.get('/auth/me', (req, res) => {
+  res.status(401).json({ detail: "Sem sessão no motor, o Firebase cuida disso!" });
+});
+
+// Rotas de Busca do Chat e Equipe
+app.get('/messages', (req, res) => res.json(messages));
+app.get('/users', (req, res) => res.json(users));
+app.get('/members', (req, res) => res.json(members));
+app.get('/members/pending', (req, res) => res.json([]));
+
+// Rotas para Criar e Buscar Tarefas (ISSO EVITA A TELA SUMIR)
+app.get('/tasks', (req, res) => {
+  res.json(tasks.filter(t => t.execution_status !== "completed"));
+});
+
+app.get('/tasks/history', (req, res) => {
+  res.json(tasks.filter(t => t.execution_status === "completed"));
+});
+
 app.post('/tasks', (req, res) => {
   const newTask = {
-    task_id: Date.now().toString(), // Cria um ID único
-    description: req.body.description,
-    priority: req.body.priority,
+    task_id: Date.now().toString(),
+    description: req.body.description || "Nova Tarefa",
+    priority: req.body.priority || "MEDIA",
     execution_status: "pending",
     created_by: req.body.created_by,
-    created_by_name: req.body.created_by_name,
-    created_at: new Date().toISOString()
+    created_by_name: req.body.created_by_name || "Usuário",
+    created_at: new Date().toISOString(),
+    status_log: ["Criado em " + new Date().toLocaleTimeString()]
   };
-  
-  tasks.unshift(newTask); // Guarda a tarefa no topo da lista
-  res.status(201).json(newTask); // Devolve o sucesso para a tela!
+  tasks.unshift(newTask); // Guarda a tarefa!
+  res.status(201).json(newTask);
 });
 
-// Rota para BUSCAR as tarefas pendentes ao abrir o app
-app.get('/tasks', (req, res) => {
-  const pendentes = tasks.filter(t => t.execution_status !== "completed");
-  res.json(pendentes);
+app.patch('/tasks/:id/status', (req, res) => {
+  const task = tasks.find(t => t.task_id === req.params.id);
+  if(task) task.execution_status = req.body.execution_status;
+  res.json(task || {});
 });
 
-// Rota para BUSCAR o histórico de tarefas concluídas
-app.get('/tasks/history', (req, res) => {
-  const concluidas = tasks.filter(t => t.execution_status === "completed");
-  res.json(concluidas);
-});
-
-// Rota para o Chat (Buscar mensagens antigas)
-app.get('/messages', (req, res) => {
-  res.json(messages);
-});
-
-// Rota para Usuários (Evitar erro na hora de mencionar alguém)
-app.get('/users', (req, res) => {
-  res.json([]);
+app.post('/upload', (req, res) => {
+  res.json({ url: "https://via.placeholder.com/300" }); // Rota falsa para uploads não quebrarem
 });
 
 // ==========================================
-// 🔌 CHAT EM TEMPO REAL (Socket.io)
+// 🔌 CHAT EM TEMPO REAL (O "Rádio" da Equipe)
 // ==========================================
 io.on('connection', (socket) => {
-  console.log('🟢 Alguém conectou:', socket.id);
+  console.log('🟢 Alguém conectou no rádio:', socket.id);
   
-  // Quando alguém envia uma mensagem no chat
   socket.on('send_message', (data) => {
     const newMessage = { ...data, message_id: Date.now().toString() };
     messages.push(newMessage);
     io.emit('new_message', newMessage); // Espalha a mensagem para todos
   });
 
-  // Quando uma tarefa nova é criada, avisa todo mundo
   socket.on('send_task', (data) => {
     io.emit('new_task', data);
   });
 });
 
-// Liga o Motor
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log(`🚀 Motor rodando na porta ${PORT}`);
+  console.log(`🚀 Motor V3 rodando perfeitamente na porta ${PORT}`);
 });
