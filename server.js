@@ -4,15 +4,23 @@ const cors = require('cors');
 const { Server } = require('socket.io');
 
 const app = express();
-app.use(cors());
+
+// 1. AQUI ESTÁ A MÁGICA DE SEGURANÇA (CORS DO EXPRESS)
+app.use(cors({
+  origin: 'https://ginzap-app.vercel.app', // O endereço exato do seu site no Vercel
+  credentials: true // Isso libera a passagem do login/cookies
+}));
+
 app.use(express.json());
 
 const server = http.createServer(app);
 
+// 2. AQUI LIBERAMOS O MOTOR DO CHAT EM TEMPO REAL (CORS DO SOCKET.IO)
 const io = new Server(server, {
   cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
+    origin: 'https://ginzap-app.vercel.app',
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+    credentials: true
   }
 });
 
