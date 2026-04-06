@@ -30,7 +30,7 @@ const io = new Server(server, {
 // 🧠 BANCO DE DADOS DEFINITIVO (NUVEM)
 // ==========================================
 // Pega a URL do painel do Render, ou usa uma de segurança (não deixe a senha exposta depois!)
-const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://thaisopalka_db_user:COLOQUE_SUA_SENHA_AQUI@cluster0.npfkmy7.mongodb.net/ginzap_db?retryWrites=true&w=majority";
+const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://thaisopalka_db_user:gin6cre@cluster0.npfkmy7.mongodb.net/ginzap_db?retryWrites=true&w=majority";
 
 mongoose.connect(MONGO_URI)
   .then(() => console.log('🟢 MongoDB Atlas Conectado com Sucesso!'))
