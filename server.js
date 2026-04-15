@@ -28,7 +28,7 @@ app.use(
       if (!origin || allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
-      return callback(null, true);
+      return callback(new Error("Origem não permitida pelo CORS"));
     },
     credentials: true
   })
@@ -287,24 +287,28 @@ app.post("/users/register", async (req, res) => {
   }
 });
 
-app.get('/users', async (req, res) => {
+// ROTA PÚBLICA USADA PELO FRONTEND
+app.get("/users", async (req, res) => {
   try {
-    const users = await User.find({}, { email: 1, name: 1, approved: 1 }).lean();
-    res.json(users || []);
+    const users = await User.find(
+      { deleted: { $ne: true } },
+      { _id: 0, email: 1, name: 1, approved: 1, role: 1, picture: 1, blocked: 1 }
+    ).sort({ name: 1, email: 1 });
+
+    return res.json(users || []);
   } catch (e) {
     console.log("Erro ao listar usuários:", e);
-    res.status(500).json([]);
+    return res.status(500).json([]);
   }
 });
 
-app.delete('/users/:email', async (req, res) => {
+// ROTA ADMIN
+app.get("/admin/users", requireAdmin, async (req, res) => {
   try {
-    const email = decodeURIComponent(req.params.email);
-    await User.deleteOne({ email });
-    res.json({ success: true });
+    const users = await User.find().sort({ name: 1, email: 1 });
+    return res.json(users);
   } catch (e) {
-    console.log("Erro ao excluir usuário:", e);
-    res.status(500).json({ error: e.message });
+    return res.status(500).json({ error: e.message });
   }
 });
 
@@ -333,15 +337,6 @@ app.get("/users/status", async (req, res) => {
       exists: !!user,
       role: user?.role || "user"
     });
-  } catch (e) {
-    return res.status(500).json({ error: e.message });
-  }
-});
-
-app.get("/users", requireAdmin, async (req, res) => {
-  try {
-    const users = await User.find().sort({ name: 1, email: 1 });
-    return res.json(users);
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
