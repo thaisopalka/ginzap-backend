@@ -82,7 +82,17 @@ const requireAdmin = (req, res, next) => {
   return res.status(403).json({ error: "Acesso restrito ao administrador." });
 };
 
-const sanitizePhone = (phone = "") => String(phone).replace(/\D/g, "");
+const userColorByName = (name = "") => {
+  const first = String(name).trim().toUpperCase();
+
+  if (first.includes("THAÍS") || first.includes("THAIS")) return "#ec4899";
+  if (first.includes("MÁRCIA") || first.includes("MARCIA")) return "#dc2626";
+  if (first.includes("RODRIGO")) return "#2563eb";
+  if (first.includes("MICHELLE")) return "#7c3aed";
+  if (first.includes("SOLANGE")) return "#ca8a04";
+
+  return "#1d4ed8";
+};
 
 const buildMagicPayloadBase64 = ({ token, email, name, exp }) => {
   const payload = { token, email, name, exp };
@@ -99,18 +109,6 @@ const reminderToMs = (reminder) => {
   if (["proprio_dia", "próprio dia", "proprio dia", "no próprio dia", "no proprio dia", "hoje"].includes(val)) return 0;
 
   return null;
-};
-
-const userColorByName = (name = "") => {
-  const first = String(name).trim().toUpperCase();
-
-  if (first.includes("THAÍS") || first.includes("THAIS")) return "#ec4899";
-  if (first.includes("MÁRCIA") || first.includes("MARCIA")) return "#dc2626";
-  if (first.includes("RODRIGO")) return "#2563eb";
-  if (first.includes("MICHELLE")) return "#7c3aed";
-  if (first.includes("SOLANGE")) return "#ca8a04";
-
-  return "#1d4ed8";
 };
 
 // ==========================================
@@ -287,7 +285,7 @@ app.post("/users/register", async (req, res) => {
   }
 });
 
-// ROTA PÚBLICA USADA PELO FRONTEND
+// ROTA PÚBLICA PARA O FRONTEND
 app.get("/users", async (req, res) => {
   try {
     const users = await User.find(
@@ -302,7 +300,7 @@ app.get("/users", async (req, res) => {
   }
 });
 
-// ROTA ADMIN
+// ROTA ADMIN SEPARADA
 app.get("/admin/users", requireAdmin, async (req, res) => {
   try {
     const users = await User.find().sort({ name: 1, email: 1 });
@@ -646,61 +644,63 @@ app.get("/tasks", async (req, res) => {
   }
 });
 
-app.post('/tasks', async (req, res) => {
+app.post("/tasks", async (req, res) => {
   try {
     const payload = {
       task_id: req.body.task_id || `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      ...req.body
+      ...req.body,
+      created_at: req.body.created_at || nowIso(),
+      updated_at: nowIso()
     };
 
     const task = await Task.create(payload);
-    io.emit('new_task', task);
-    res.status(201).json(task);
-  } catch(e) {
-    res.status(500).json({ error: e.message });
+    io.emit("new_task", task);
+    return res.status(201).json(task);
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
   }
 });
 
-app.put('/tasks/:id', async (req, res) => {
+app.put("/tasks/:id", async (req, res) => {
   try {
     const task = await Task.findOneAndUpdate(
       { $or: [{ task_id: req.params.id }, { id: req.params.id }, { _id: req.params.id }] },
-      req.body,
+      { ...req.body, updated_at: nowIso() },
       { new: true }
     );
 
-    if (task) io.emit('new_task', task);
-    res.json(task || {});
-  } catch(e) {
-    res.status(500).json({ error: e.message });
+    if (task) io.emit("new_task", task);
+    return res.json(task || {});
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
   }
 });
 
-app.patch('/tasks/:id/status', async (req, res) => {
+app.patch("/tasks/:id/status", async (req, res) => {
   try {
     const task = await Task.findOneAndUpdate(
       { $or: [{ task_id: req.params.id }, { id: req.params.id }, { _id: req.params.id }] },
-      { execution_status: req.body.execution_status },
+      { execution_status: req.body.execution_status, updated_at: nowIso() },
       { new: true }
     );
 
-    if (task) io.emit('new_task', task);
-    res.json(task || {});
-  } catch(e) {
-    res.status(500).json({ error: e.message });
+    if (task) io.emit("new_task", task);
+    return res.json(task || {});
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
   }
 });
 
-app.delete('/tasks/:id', async (req, res) => {
+app.delete("/tasks/:id", async (req, res) => {
   try {
     const deleted = await Task.findOneAndDelete({
       $or: [{ task_id: req.params.id }, { id: req.params.id }, { _id: req.params.id }]
     });
 
-    if (deleted) io.emit('delete_task', req.params.id);
-    res.json({ success: true });
-  } catch(e) {
-    res.status(500).json({ error: e.message });
+    if (deleted) io.emit("delete_task", req.params.id);
+    return res.json({ success: true });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
   }
 });
 
@@ -723,7 +723,7 @@ app.post("/events", async (req, res) => {
       event_id: req.body.event_id || makeId("event_"),
       created_at: req.body.created_at || nowIso(),
       updated_at: nowIso(),
-      reminders_sent: {}
+      reminders_sent: req.body.reminders_sent || {}
     };
 
     const event = await Event.create(payload);
@@ -740,10 +740,7 @@ app.put("/events/:id", async (req, res) => {
   try {
     const event = await Event.findOneAndUpdate(
       { event_id: req.params.id },
-      {
-        ...req.body,
-        updated_at: nowIso()
-      },
+      { ...req.body, updated_at: nowIso() },
       { new: true }
     );
 
@@ -758,9 +755,7 @@ app.put("/events/:id", async (req, res) => {
 app.delete("/events/:id", async (req, res) => {
   try {
     await Event.findOneAndDelete({ event_id: req.params.id });
-
     io.emit("sync_agenda", { type: "deleted", event_id: req.params.id });
-
     return res.json({ success: true });
   } catch (e) {
     return res.status(500).json({ error: e.message });
@@ -788,7 +783,6 @@ async function processAgendaReminders() {
 
       const key = String(event.reminder || "sem_lembrete");
       const alreadySent = event.reminders_sent?.[key];
-
       const diff = Math.abs(now.getTime() - triggerDate.getTime());
 
       if (!alreadySent && diff <= 60000) {
@@ -867,6 +861,35 @@ app.post("/request-approval", async (req, res) => {
   }
 });
 
+app.get("/approve-user", async (req, res) => {
+  try {
+    const email = normalizeEmail(req.query.email);
+    if (!email) return res.status(400).send("E-mail não informado.");
+
+    await User.findOneAndUpdate(
+      { email },
+      {
+        approved: true,
+        blocked: false,
+        deleted: false,
+        updated_at: nowIso()
+      },
+      { new: true, upsert: true }
+    );
+
+    io.emit("users_updated", { type: "approved_legacy", email });
+
+    return res.send(`
+      <h1 style="color:green; text-align:center; margin-top:100px; font-family:sans-serif;">
+        ✅ Usuário ${email} foi aprovado!<br><br>
+        Agora ele pode entrar no GinZap.
+      </h1>
+    `);
+  } catch (e) {
+    return res.status(500).send("Erro ao aprovar.");
+  }
+});
+
 // ==========================================
 // SOCKET.IO
 // ==========================================
@@ -891,12 +914,11 @@ io.on("connection", (socket) => {
 
   socket.on("sync_agenda", (data) => {
     io.emit("sync_agenda", data);
-     });
-  
-    socket.on('delete_task', (id) => {
-  io.emit('delete_task', id);
-   });
- 
+  });
+
+  socket.on("delete_task", (id) => {
+    io.emit("delete_task", id);
+  });
 
   socket.on("disconnect", () => {
     console.log("🔴 Socket desconectado:", socket.id);
