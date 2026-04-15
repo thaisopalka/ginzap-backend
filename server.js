@@ -630,78 +630,61 @@ app.get("/tasks", async (req, res) => {
   }
 });
 
-app.post("/tasks", async (req, res) => {
+app.post('/tasks', async (req, res) => {
   try {
     const payload = {
-      ...req.body,
-      task_id: req.body.task_id || makeId("task_"),
-      created_at: req.body.created_at || nowIso(),
-      updated_at: nowIso()
+      task_id: req.body.task_id || `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      ...req.body
     };
 
     const task = await Task.create(payload);
-
-    io.emit("new_task", task);
-
-    return res.status(201).json(task);
-  } catch (e) {
-    return res.status(500).json({ error: e.message });
+    io.emit('new_task', task);
+    res.status(201).json(task);
+  } catch(e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
-app.put("/tasks/:id", async (req, res) => {
+app.put('/tasks/:id', async (req, res) => {
   try {
     const task = await Task.findOneAndUpdate(
-      {
-        $or: [{ task_id: req.params.id }, { id: req.params.id }]
-      },
-      {
-        ...req.body,
-        updated_at: nowIso()
-      },
+      { $or: [{ task_id: req.params.id }, { id: req.params.id }, { _id: req.params.id }] },
+      req.body,
       { new: true }
     );
 
-    if (task) io.emit("new_task", task);
-
-    return res.json(task || {});
-  } catch (e) {
-    return res.status(500).json({ error: e.message });
+    if (task) io.emit('new_task', task);
+    res.json(task || {});
+  } catch(e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
-app.patch("/tasks/:id/status", async (req, res) => {
+app.patch('/tasks/:id/status', async (req, res) => {
   try {
     const task = await Task.findOneAndUpdate(
-      {
-        $or: [{ task_id: req.params.id }, { id: req.params.id }]
-      },
-      {
-        execution_status: req.body.execution_status,
-        updated_at: nowIso()
-      },
+      { $or: [{ task_id: req.params.id }, { id: req.params.id }, { _id: req.params.id }] },
+      { execution_status: req.body.execution_status },
       { new: true }
     );
 
-    if (task) io.emit("new_task", task);
-
-    return res.json(task || {});
-  } catch (e) {
-    return res.status(500).json({ error: e.message });
+    if (task) io.emit('new_task', task);
+    res.json(task || {});
+  } catch(e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
-app.delete("/tasks/:id", async (req, res) => {
+app.delete('/tasks/:id', async (req, res) => {
   try {
-    await Task.findOneAndDelete({
-      $or: [{ task_id: req.params.id }, { id: req.params.id }]
+    const deleted = await Task.findOneAndDelete({
+      $or: [{ task_id: req.params.id }, { id: req.params.id }, { _id: req.params.id }]
     });
 
-    io.emit("task_deleted", req.params.id);
-
-    return res.json({ success: true });
-  } catch (e) {
-    return res.status(500).json({ error: e.message });
+    if (deleted) io.emit('delete_task', req.params.id);
+    res.json({ success: true });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
@@ -892,7 +875,12 @@ io.on("connection", (socket) => {
 
   socket.on("sync_agenda", (data) => {
     io.emit("sync_agenda", data);
-  });
+     });
+  
+    socket.on('delete_task', (id) => {
+  io.emit('delete_task', id);
+   });
+ 
 
   socket.on("disconnect", () => {
     console.log("🔴 Socket desconectado:", socket.id);
