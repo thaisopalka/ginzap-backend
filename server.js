@@ -287,6 +287,27 @@ app.post("/users/register", async (req, res) => {
   }
 });
 
+app.get('/users', async (req, res) => {
+  try {
+    const users = await User.find({}, { email: 1, name: 1, approved: 1 }).lean();
+    res.json(users || []);
+  } catch (e) {
+    console.log("Erro ao listar usuários:", e);
+    res.status(500).json([]);
+  }
+});
+
+app.delete('/users/:email', async (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email);
+    await User.deleteOne({ email });
+    res.json({ success: true });
+  } catch (e) {
+    console.log("Erro ao excluir usuário:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get("/users/status", async (req, res) => {
   try {
     const email = normalizeEmail(req.query.email);
