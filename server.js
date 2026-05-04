@@ -5,6 +5,8 @@ const { Server } = require("socket.io");
 const nodemailer = require("nodemailer");
 const mongoose = require("mongoose");
 const crypto = require("crypto");
+const path = require("path");
+const XlsxPopulate = require("xlsx-populate");
 
 const app = express();
 
@@ -770,6 +772,125 @@ app.delete("/events/:id", async (req, res) => {
     return res.json({ success: true });
   } catch (e) {
     return res.status(500).json({ error: e.message });
+  }
+});
+
+// ==========================================
+// ORDEM DE SERVIÇO - MODELO EXCEL
+// ==========================================
+const formatServiceOrderProtocol = (num) =>
+  `${String(num).padStart(3, "0")}-2026`;
+
+const sanitizeFileName = (value = "") =>
+  String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\\/:*?"<>|]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const formatDateBR = (dateValue = "") => {
+  if (!dateValue) return "";
+  const [y, m, d] = String(dateValue).split("-");
+  if (!y || !m || !d) return "";
+  return `${d}/${m}/${y}`;
+};
+
+async function getNextServiceOrderProtocol() {
+  const CONFIG_NAME = "SYS_SERVICE_ORDER_COUNTER";
+
+  let config = await Task.findOne({ description: CONFIG_NAME });
+  let current = 0;
+
+  if (config?.notes) {
+    try {
+      const parsed = JSON.parse(config.notes);
+      current = Number(parsed.current || 0) || 0;
+    } catch {
+      current = 0;
+    }
+  }
+
+  const next = current + 1;
+  const protocolo = formatServiceOrderProtocol(next);
+
+  const payload = {
+    task_id: config?.task_id || `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    description: CONFIG_NAME,
+    execution_status: "pending",
+    created_by_name: "Sistema",
+    created_by_email: ADMIN_EMAIL,
+    notes: JSON.stringify({
+      current: next,
+      protocolo,
+      updated_at: nowIso()
+    }),
+    created_at: config?.created_at || nowIso(),
+    updated_at: nowIso()
+  };
+
+  if (config) {
+    await Task.findOneAndUpdate({ task_id: config.task_id }, payload, { new: true });
+  } else {
+    await Task.create(payload);
+  }
+
+  return protocolo;
+}
+
+app.post("/service-orders/generate", async (req, res) => {
+  try {
+    const {
+      designacao = "",
+      unidade = "",
+      endereco = "",
+      diretorNome = "",
+      dataGeracao = "",
+      assunto = "ORDEM DE SERVIÇO",
+      descricaoServico = "",
+      observacoes = "",
+      protocolo: protocoloRecebido = ""
+    } = req.body || {};
+
+    if (!designacao || !unidade) {
+      return res.status(400).json({ error: "Designação e unidade são obrigatórias." });
+    }
+
+    const protocolo = protocoloRecebido || await getNextServiceOrderProtocol();
+
+    const templatePath = path.join(__dirname, "modelos", "MODELO_GINZAP_TEMPLATE.xlsx");
+    const workbook = await XlsxPopulate.fromFileAsync(templatePath);
+    const sheet = workbook.sheet(0);
+
+    // Ajuste automático dos campos variáveis
+    sheet.cell("B4").value(protocolo);
+    sheet.cell("D4").value(formatDateBR(dataGeracao));
+    sheet.cell("B5").value(designacao);
+    sheet.cell("D5").value(unidade);
+    sheet.cell("B6").value(endereco);
+    sheet.cell("B7").value(diretorNome);
+    sheet.cell("B8").value(assunto);
+    sheet.cell("B9").value(descricaoServico);
+    sheet.cell("B10").value(observacoes);
+
+    const dataArquivo = formatDateBR(dataGeracao).replace(/\//g, "-") || "SEM-DATA";
+    const nomeArquivo = `ORDEM DE SERVIÇO 6ªCRE.GIN - ${sanitizeFileName(unidade)} - ${dataArquivo} - ${protocolo}.xlsx`;
+
+    const buffer = await workbook.outputAsync();
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename*=UTF-8''${encodeURIComponent(nomeArquivo)}`
+    );
+
+    return res.send(Buffer.from(buffer));
+  } catch (e) {
+    console.error("Erro ao gerar ordem de serviço:", e);
+    return res.status(500).json({ error: "Erro ao gerar a ordem de serviço." });
   }
 });
 
