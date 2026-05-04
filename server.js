@@ -944,3 +944,109 @@ const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
   console.log(`🚀 GinZap backend rodando na porta ${PORT}`);
 });
+from fastapi import HTTPException
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from openpyxl import load_workbook
+from pymongo import ReturnDocument
+from io import BytesIO
+from datetime import datetime
+import os
+import re
+import textwrap
+
+TEMPLATE_OS_PATH = os.path.join(os.path.dirname(__file__), "templates", "MODELO_GINZAP_TEMPLATE.xlsx")
+
+class ServiceOrderPayload(BaseModel):
+    designacao: str
+    unidade: str
+    endereco: str
+    diretor_nome: str = ""
+    diretor_telefone: str = ""
+    data_geracao: str = ""
+    hora_geracao: str = ""
+    descricao_servico: str = ""
+    observacoes: str = ""
+
+def sanitize_filename(value: str) -> str:
+    value = re.sub(r'[\\/:*?"<>|]+', "", value or "")
+    return re.sub(r"\s+", " ", value).strip()
+
+def to_br_date(date_iso: str) -> str:
+    try:
+        return datetime.strptime(date_iso, "%Y-%m-%d").strftime("%d/%m/%Y")
+    except Exception:
+        return datetime.now().strftime("%d/%m/%Y")
+
+def fill_rows(ws, rows, text):
+    for row in rows:
+        ws[f"A{row}"] = ""
+
+    if not text:
+        return
+
+    lines = []
+    for part in str(text).splitlines():
+        wrapped = textwrap.wrap(
+            part,
+            width=105,
+            break_long_words=False,
+            replace_whitespace=False
+        )
+        lines.extend(wrapped or [""])
+
+    for idx, row in enumerate(rows):
+        if idx < len(lines):
+            ws[f"A{row}"] = lines[idx]
+
+@app.post("/service-orders/generate")
+async def generate_service_order(payload: ServiceOrderPayload):
+    if not os.path.exists(TEMPLATE_OS_PATH):
+        raise HTTPException(status_code=404, detail="Modelo de Ordem de Serviço não encontrado no backend.")
+
+    seq = await db.service_order_sequences.find_one_and_update(
+        {"_id": "service_order_2026"},
+        {"$inc": {"seq": 1}, "$setOnInsert": {"year": 2026}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER
+    )
+
+    protocolo = f"{int(seq.get('seq', 1)):03d}-2026"
+
+    wb = load_workbook(TEMPLATE_OS_PATH)
+    ws = wb[wb.sheetnames[0]]
+
+    unidade_completa = f"{payload.designacao} - {payload.unidade}".strip(" -")
+    data_br = to_br_date(payload.data_geracao)
+    hora_txt = payload.hora_geracao or datetime.now().strftime("%H:%M")
+
+    # AJUSTE SOMENTE ESTAS CÉLULAS DE ACORDO COM O SEU MODELO
+    ws["A7"] = f"Nº PROTOCOLO: {protocolo}"
+    ws["A9"] = f"UNIDADE: {unidade_completa}"
+    ws["I9"] = f"DATA {data_br}"
+    ws["I10"] = f"HORA {hora_txt}"
+    ws["A11"] = f"ENDEREÇO: {payload.endereco}"
+
+    fill_rows(ws, [20, 21, 22], payload.descricao_servico)
+    fill_rows(ws, [45, 46], payload.observacoes)
+
+    nome_unidade = sanitize_filename(payload.unidade or "UNIDADE")
+    data_arquivo = data_br.replace("/", "-")
+    filename = f"ORDEM DE SERVIÇO 6ªCRE.GIN - {nome_unidade} - {data_arquivo} - {protocolo}.xlsx"
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "X-Service-Order-Protocol": protocolo,
+        "X-Service-Order-Filename": filename,
+        "Access-Control-Expose-Headers": "Content-Disposition, X-Service-Order-Protocol, X-Service-Order-Filename"
+    }
+
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers
+    )
