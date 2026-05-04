@@ -1,0 +1,4 @@
+backend/
+ ├─ main.py   (ou app.py / server.py)
+ └─ templates/
+    └─ MODELO_GINZAP_TEMPLATE.xlsx
