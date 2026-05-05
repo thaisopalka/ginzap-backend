@@ -417,17 +417,6 @@ app.delete("/users/:email", requireAdmin, async (req, res) => {
   }
 });
 
-@app.middleware("http")
-async def disable_cache(request, call_next):
-    response = await call_next(request)
-
-    if request.url.path in ["/messages", "/tasks", "/events", "/users"]:
-        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        response.headers["Pragma"] = "no-cache"
-        response.headers["Expires"] = "0"
-
-    return response
-
 // ==========================================
 // LINK MÁGICO
 // ==========================================
@@ -838,19 +827,21 @@ async function getNextServiceOrderProtocol() {
   return protocolo;
 }
 
+const fs = require("fs");
+
 app.post("/service-orders/generate", async (req, res) => {
   try {
-    const {
-      designacao = "",
-      unidade = "",
-      endereco = "",
-      diretorNome = "",
-      dataGeracao = "",
-      assunto = "ORDEM DE SERVIÇO",
-      descricaoServico = "",
-      observacoes = "",
-      protocolo: protocoloRecebido = ""
-    } = req.body || {};
+    const body = req.body || {};
+
+    const designacao = body.designacao || "";
+    const unidade = body.unidade || "";
+    const endereco = body.endereco || "";
+    const diretorNome = body.diretorNome || body.diretor_nome || "";
+    const dataGeracao = body.dataGeracao || body.data_geracao || "";
+    const assunto = body.assunto || "ORDEM DE SERVIÇO";
+    const descricaoServico = body.descricaoServico || body.descricao_servico || "";
+    const observacoes = body.observacoes || "";
+    const protocoloRecebido = body.protocolo || body.protocoloGerado || "";
 
     if (!designacao || !unidade) {
       return res.status(400).json({ error: "Designação e unidade são obrigatórias." });
@@ -859,10 +850,16 @@ app.post("/service-orders/generate", async (req, res) => {
     const protocolo = protocoloRecebido || await getNextServiceOrderProtocol();
 
     const templatePath = path.join(__dirname, "modelos", "MODELO_GINZAP_TEMPLATE.xlsx");
+
+    if (!fs.existsSync(templatePath)) {
+      return res.status(500).json({
+        error: `Modelo não encontrado em: ${templatePath}`
+      });
+    }
+
     const workbook = await XlsxPopulate.fromFileAsync(templatePath);
     const sheet = workbook.sheet(0);
 
-    // Ajuste automático dos campos variáveis
     sheet.cell("B4").value(protocolo);
     sheet.cell("D4").value(formatDateBR(dataGeracao));
     sheet.cell("B5").value(designacao);
@@ -878,19 +875,15 @@ app.post("/service-orders/generate", async (req, res) => {
 
     const buffer = await workbook.outputAsync();
 
-    res.setHeader(
-      "Content-Type",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    );
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename*=UTF-8''${encodeURIComponent(nomeArquivo)}`
-    );
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(nomeArquivo)}`);
+    res.setHeader("x-service-order-protocol", protocolo);
+    res.setHeader("x-service-order-filename", nomeArquivo);
 
     return res.send(Buffer.from(buffer));
   } catch (e) {
     console.error("Erro ao gerar ordem de serviço:", e);
-    return res.status(500).json({ error: "Erro ao gerar a ordem de serviço." });
+    return res.status(500).json({ error: e.message || "Erro ao gerar a ordem de serviço." });
   }
 });
 
